@@ -1,11 +1,8 @@
--- A BOT TO AUTO-PLAYING GAME BASED ON AMOUNT YOU HAVE SET (DEFAULT IS 2)
+LatestGameState = LatestGameState or nil
+InAction = InAction or false
+Logs = Logs or {}
 
--- Number of rounds to play automatically
-NumAutoPlay  = NumAutoPlay or 2
-CRED = "Sa0iBLPNyJQrwpTTG-tWLQU-1QeUAJA73DdxGGiKoJc"
-BlackJack = "Vo7O7WJ2OPlKBtudjfeOdzjcjpi_-V_RLE27VpZP8jA"
-
-colors = {
+local colors = {
   red = "\27[31m",
   green = "\27[32m",
   blue = "\27[34m",
@@ -13,156 +10,162 @@ colors = {
   gray = "\27[90m"
 }
 
--- A table of basic strategy
-local basic_strategy = {
-  [21] = {"S", "S", "S", "S", "S", "S", "S", "S", "S", "S"},
-  [20] = {"S", "S", "S", "S", "S", "S", "S", "S", "S", "S"},
-  [19] = {"S", "S", "S", "S", "S", "S", "S", "S", "S", "S"},
-  [18] = {"S", "S", "S", "S", "S", "S", "S", "S", "S", "S"},
-  [17] = {"S", "S", "S", "S", "S", "S", "S", "S", "S", "S"},
-  [16] = {"S", "S", "S", "S", "S", "H", "H", "H", "H", "H"},
-  [15] = {"S", "S", "S", "S", "S", "H", "H", "H", "H", "H"},
-  [14] = {"S", "S", "S", "S", "S", "H", "H", "H", "H", "H"},
-  [13] = {"S", "S", "S", "S", "S", "H", "H", "H", "H", "H"},
-  [12] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [11] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [10] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [9] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [8] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [7] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [6] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [5] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [4] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [3] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"},
-  [2] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"}
+
+local directions = {
+  { x = 0,  y = 1,  name = "Up" },
+  { x = 0,  y = -1, name = "Down" },
+  { x = -1, y = 0,  name = "Left" },
+  { x = 1,  y = 0,  name = "Right" },
+  { x = 1,  y = 1,  name = "UpRight" },
+  { x = -1, y = 1,  name = "UpLeft" },
+  { x = 1,  y = -1, name = "DownRight" },
+  { x = -1, y = -1, name = "DownLeft" }
 }
 
--- get the point of a card
-local function pointOfCard(card)
-  local point
-  if (card == "J" or card == "Q" or card == "K") then
-    point = 10
-  elseif card == "A" then
-    point = 11
-  else
-    point = tonumber(card)
-  end
-
-  return point
+local function addLog(msg, text)
+  Logs[msg] = Logs[msg] or {}
+  table.insert(Logs[msg], text)
 end
 
--- extract the card from game response message
-local function extractCards(input_str)
-  local chars = {}
-  for char in input_str:gmatch("%d+%s*of") do
-    table.insert(chars, char:sub(1, char:find("%s") - 1))
-  end
-  for char in input_str:gmatch("%a%s*of") do
-    table.insert(chars, char:sub(1, 1))
-  end
-  return chars
+local function inRange(x1, y1, x2, y2, range)
+  return math.abs(x1 - x2) <= range and math.abs(y1 - y2) <= range
 end
 
--- get the best decision based on a table of basic strategy
-local function getBestDecision(player_hand_value, dealer_upcard_value)
-  if not basic_strategy[player_hand_value] then
-    return "S"
+local function findAvoidDirection()
+  local me = LatestGameState.Players[ao.id]
+  if not me then
+    print("Error: Player with ao.id not found.")
+    return "Stay"
   end
 
-  local decision = basic_strategy[player_hand_value][dealer_upcard_value] or "S"
-  return decision
+  local avoidVector = {x = 0, y = 0}
+  local playerCount = 0
+
+  for _, otherPlayer in pairs(LatestGameState.Players) do
+    if otherPlayer.id ~= me.id then
+      avoidVector.x = avoidVector.x + (me.x - otherPlayer.x)
+      avoidVector.y = avoidVector.y + (me.y - otherPlayer.y)
+      playerCount = playerCount + 1
+    end
+  end
+
+  if playerCount == 0 then
+    return "Stay"
+  end
+
+  avoidVector.x = avoidVector.x / playerCount
+  avoidVector.y = avoidVector.y / playerCount
+  avoidVector = normalizeDirection(avoidVector)
+
+  local closestDirection = "Stay"
+  local highestDot = -math.huge
+  for _, dir in ipairs(directions) do
+    local dotProduct = avoidVector.x * dir.x + avoidVector.y * dir.y
+    if dotProduct > highestDot then
+      highestDot = dotProduct
+      closestDirection = dir.name
+    end
+  end
+
+  return closestDirection
 end
 
--- decide to the next action
-local function decideNextAction(str)
-  local strPlayer
-  local strDealer
-  local index = string.find(str, "And the dealer is showing")
+local function normalizeDirection(direction)
+  local length = math.sqrt(direction.x * direction.x + direction.y * direction.y)
+  if length == 0 then
+    return { x = 0, y = 0 }
+  end
+  return { x = direction.x / length, y = direction.y / length }
+end
 
-  if index ~= nil then -- in a game round
-    strPlayer = string.sub(str, 1, index - 2)
-    strDealer = string.sub(str, index)
-  else                 -- game over
-    if NumAutoPlay > 1 then
-      index = string.find(str, "You have no active game")
-      if index == nil then
-        ao.send({ Target = ao.id, Action = "AutoPay" })
+local function decideNextAction()
+  local me = LatestGameState.Players[ao.id]
+  local tooClose = false
+  for _, otherPlayer in pairs(LatestGameState.Players) do
+    if otherPlayer.id ~= ao.id then
+      local distance = math.sqrt((me.x - otherPlayer.x)^2 + (me.y - otherPlayer.y)^2)
+      if distance < 2 then
+        tooClose = true
+        break
       end
     end
+  end
+
+  if tooClose then
+    print(colors.red .. "Player too close, attacking!" .. colors.reset)
+    ao.send({ Target = Game, Action = "PlayerAttack", Player = ao.id, AttackEnergy = tostring(me.energy) })
+  else
+    local avoidDirection = findAvoidDirection()
+    local energyStatus = "Energy sufficient."
+    if me.energy < 50 then
+      energyStatus = "Energy low. Prioritizing avoidance."
+    end
+    print(colors.blue .. energyStatus .. colors.reset)
+    ao.send({ Target = Game, Action = "PlayerMove", Player = ao.id, Direction = avoidDirection })
+  end
+
+  InAction = false
+end
+
+local Handlers = {}
+
+-- Print announcements and trigger game state updates
+Handlers.PrintAnnouncements = function(msg)
+  if msg.Event == "Started-Waiting-Period" then
+    ao.send({ Target = ao.id, Action = "AutoPay" })
+  elseif (msg.Event == "Tick" or msg.Event == "Started-Game") and not InAction then
+    InAction = true
+    ao.send({ Target = Game, Action = "GetGameState" })
+  elseif InAction then
+    print("Previous action still in progress. Skipping.")
+  end
+
+  print(colors.green .. msg.Event .. ": " .. msg.Data .. colors.reset)
+end
+
+Handlers.GetGameStateOnTick = function()
+  if not InAction then
+    InAction = true
+    print(colors.gray .. "Getting game state..." .. colors.reset)
+    ao.send({ Target = Game, Action = "GetGameState" })
+  else
+    print("Previous action still in progress. Skipping.")
+  end
+end
+
+Handlers.AutoPay = function(msg)
+  print("Auto-paying confirmation fees.")
+  ao.send({ Target = Game, Action = "Transfer", Recipient = Game, Quantity = "1000" })
+end
+
+Handlers.UpdateGameState = function(msg)
+  local json = require("json")
+  LatestGameState = json.decode(msg.Data)
+  ao.send({ Target = ao.id, Action = "UpdatedGameState" })
+  print("Game state updated. Print 'LatestGameState' for detailed view.")
+  print("energy:" .. LatestGameState.Players[ao.id].energy)
+end
+
+-- Decide the next best action
+Handlers.decideNextAction = function()
+  if LatestGameState.GameMode ~= "Playing" then
+    print("game not start")
+    InAction = false
     return
   end
-
-  -- Calc the value of player hand
-  local points = 0
-  local amtOfA = 0
-  local result = extractCards(strPlayer)
-
-  for i = 1, #result do
-    if result[i] == "A" then
-      amtOfA = amtOfA + 1
-      if amtOfA > 1 then
-        points = points + 1
-      else
-        points = points + 11
-      end
-    else
-      points = points + pointOfCard(result[i])
-    end
-  end
-
-  print('Your points: ' .. points)
-
-  -- Calc the value of dealer upcard
-  result = extractCards(strDealer)
-  local dealerUpCard = pointOfCard(result[1])
-
-  -- if points > 16 then -- this is a simple playing strategy
-  -- this is a playing strategy from a table of basic strategy
-  local decision = getBestDecision(points, dealerUpCard)
-
-  if decision == "H" then
-    print(colors.red .. 'Hit!' .. colors.reset)
-    ao.send({ Target = BlackJack, Action = "Hit" })
-  else
-    print(colors.red .. 'Stay!' .. colors.reset)
-    ao.send({ Target = BlackJack, Action = "Stay" })
-  end
+  print("Deciding next action.")
+  decideNextAction()
+  ao.send({ Target = ao.id, Action = "Tick" })
 end
 
--- Handler to process the message from the game and decide the next action
-Handlers.add(
-  "BlackJackReader",
-  Handlers.utils.hasMatchingTag("Action", "BlackJackMessage"),
-  function(msg)
-    print(msg.Data)
-    decideNextAction(msg.Data)
-  end
-)
-
--- Handler to automate payment when a round end.
-Handlers.add(
-  "AutoPay",
-  Handlers.utils.hasMatchingTag("Action", "AutoPay"),
-  function(msg)
-    if msg.From == ao.id then
-      NumAutoPlay = NumAutoPlay - 1
-      print(colors.red .. "Auto-paying confirmation fees." .. colors.reset)
-      ao.send({ Target = CRED, Action = "Transfer", Recipient = BlackJack, Quantity = "1000" })
-    end
-  end
-)
-
--- Handler to set the number of automate playing
-Handlers.add(
-  "SetAutoPlay",
-  Handlers.utils.hasMatchingTag("Action", "SetAutoPlay"),
-  function(msg)
-    if msg.From == ao.id then
-      print("You set the amount of auto-playing: " .. msg.Tags.Amount)
-      NumAutoPlay = tonumber(msg.Tags.Amount)
-    end
-  end
-)
-
--- Debug: Handler for testing
--- Handlers.add("testAutoNextAction", Handlers.utils.hasMatchingTag("Action", "TestAutoNextAction"), decideNextAction)
+-- Automatically attack when hit by another player
+Handlers.ReturnAttack = function(msg)
+  if not InAction then
+    InAction = true
+    local playerEnergy = LatestGameState.Players[ao.id].energy
+    if playerEnergy == undefined then
+      print(colors.red .. "Unable to read energy." .. colors.reset)
+      ao.send({ Target = Game, Action = "Attack-Failed", Reason = "Unable to read energy." })
+    elseif playerEnergy == 0 then
+      print(colors.red .. "Player has insufficient energy." .. colors.reset)
+      ao.send({ Target = Game, Action
