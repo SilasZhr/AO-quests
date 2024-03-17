@@ -86,6 +86,16 @@ local basic_strategy = {
   [2] = {"H", "H", "H", "H", "H", "H", "H", "H", "H", "H"}
 }
 
+-- get the best decision based on a table of basic strategy
+local function getBestDecision(player_hand_value, dealer_upcard_value)
+  if not basic_strategy[player_hand_value] then
+    return "S"
+  end
+
+  local decision = basic_strategy[player_hand_value][dealer_upcard_value] or "S"
+  return decision
+end
+
 
 function findApproachDirection()
     local me = LatestGameState.Players[ao.id]
@@ -139,6 +149,16 @@ function decideNextAction()
     nearestPlayer.isInAttackRange = isNearestPlayerInAttackRange;
     print(nearestPlayer)
 
+    -- if points > 16 then -- this is a simple playing strategy
+    -- this is a playing strategy from a table of basic strategy
+    local decision = getBestDecision(points, dealerUpCard)
+    
+    if decision == "H" then
+        CurrentStrategy = "attack"
+    else
+        CurrentStrategy = "approach"
+    end
+    
     if nearestPlayer.isInAttackRange then
         CurrentStrategy = "attack"
     else
