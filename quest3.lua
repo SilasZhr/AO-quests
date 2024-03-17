@@ -63,42 +63,6 @@ local directionMap = {
   { x = -1, y = -1, name = "DownLeft" }
 }
 
-
-
-function findAvoidDirection()
-    local me = LatestGameState.Players[ao.id]
-
-    local avoidDirection = { x = 0, y = 0 }
-    for target, state in pairs(LatestGameState.Players) do
-        if target == ao.id then
-            goto continue
-        end
-
-        local otherPlayer = state
-        local avoidVector = { x = me.x - otherPlayer.x, y = me.y - otherPlayer.y }
-        avoidDirection.x = avoidDirection.x + avoidVector.x
-        avoidDirection.y = avoidDirection.y + avoidVector.y
-
-        ::continue::
-    end
-    avoidDirection = normalizeDirection(avoidDirection)
-
-    local closestDirection = nil
-    local closestDotResult = nil
-
-    for direction, name in pairs(directionMap) do
-        local normalized = normalizeDirection(direction)
-        local dotResult = avoidDirection.x * normalized.x + avoidDirection.y + normalized.y
-
-        if closestDirection == nil or closestDotResult < dotResult then
-            closestDirection = name
-            closestDotResult = dotResult
-        end
-    end
-
-    return closestDirection
-end
-
 function findApproachDirection()
     local me = LatestGameState.Players[ao.id]
 
@@ -149,23 +113,15 @@ function decideNextAction()
     local isNearestPlayerInAttackRange = isPlayerInAttackRange(nearestPlayer)
 
     nearestPlayer.isInAttackRange = isNearestPlayerInAttackRange;
-    nearestPlayer.meEnergy = me.energy
     print(nearestPlayer)
 
-    if me.energy < 50 then
-        CurrentStrategy = "avoid"
-    elseif nearestPlayer.isInAttackRange then
+    if nearestPlayer.isInAttackRange then
         CurrentStrategy = "attack"
     else
         CurrentStrategy = "approach"
     end
 
     local tableOfActions = {}
-    tableOfActions["avoid"] = function()
-        local direction = findAvoidDirection()
-        print(colors.green .. "saving energy. avoiding" .. colors.reset)
-        ao.send({ Target = Game, Action = "PlayerMove", Player = ao.id, Direction = direction })
-    end
     tableOfActions["approach"] = function()
         local direction = findApproachDirection()
         print(colors.blue .. "be angry. approach" .. colors.reset)
