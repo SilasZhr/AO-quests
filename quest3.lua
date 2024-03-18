@@ -154,16 +154,12 @@ function decideNextAction()
     local decision = getBestDecision(points, dealerUpCard)
     
     if decision == "H" then
-        CurrentStrategy = "attack"
+        if nearestPlayer.isInAttackRange then
+            CurrentStrategy = "attack"
     else
         CurrentStrategy = "approach"
     end
     
-    if nearestPlayer.isInAttackRange then
-        CurrentStrategy = "attack"
-    else
-        CurrentStrategy = "approach"
-    end
 
     local tableOfActions = {}
     tableOfActions["approach"] = function()
