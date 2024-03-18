@@ -156,6 +156,8 @@ function decideNextAction()
     if decision == "H" then
         if nearestPlayer.isInAttackRange then
             CurrentStrategy = "attack"
+        else
+            CurrentStrategy = "approach"
         end
     else
         CurrentStrategy = "approach"
